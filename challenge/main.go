@@ -55,6 +55,7 @@ func main() {
 		},
 	}
 
+	app.Action = run
 	app.Before = initEnv
 	app.Run(os.Args)
 }
@@ -72,7 +73,7 @@ func initEnv(ctx *cli.Context) error {
 
 func run(cli *cli.Context) {
 
-	fmt.Printf("Starting storage-server...")
+	fmt.Printf("Starting storage-server...\n")
 
 	d, err := daemon.NewDaemon(config)
 	if err != nil {

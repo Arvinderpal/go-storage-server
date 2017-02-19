@@ -1,0 +1,22 @@
+
+docker run -v .:/home/ubuntu -other -options go-storage-server
+
+docker run -v /home/awander/go/src/github.com/Arvinderpal/go-storage-server/challenge:/root/challenge -it go-storage-server bin/bash
+
+
+########
+# run  #
+########
+bin/challenge-executable -D
+
+
+
+########
+# REST #
+########
+curl --stderr /dev/null http://localhost:7777/healthz
+
+curl --stderr /dev/null http://localhost:7777/store/blah 
+curl --request POST http://localhost:7777/store/blah --data @../test/data.txt
+curl --request PUT http://localhost:7777/store/blah --data @../test/data.txt
+curl --request DELETE http://localhost:7777/store/blah 
