@@ -13,6 +13,8 @@
 package blob
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -35,8 +37,7 @@ type Blob struct {
 	ID       uint16 `json:"id"`       // Blob ID
 	Location string `json:"location"` // Blob Location
 
-	// Consumable       *policy.Consumable    `json:"consumable"`
-	Opts   *option.BoolOptions `json:"options"` // Endpoint bpf options.
+	Opts   *option.BoolOptions `json:"options"`
 	Status *BlobStatus         `json:"status,omitempty"`
 }
 
@@ -164,4 +165,37 @@ func (b *Blob) LogStatusOK(msg string) {
 		Timestamp: time.Now(),
 	}
 	b.Status.addStatusLog(sts)
+}
+
+// Base64 returns the blob in a base64 format.
+func (bb Blob) Base64() (string, error) {
+	jsonBytes, err := json.Marshal(bb)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(jsonBytes), nil
+}
+
+// ParseBase64ToBlob parses the blob stored in the given base64 string.
+func ParseBase64ToBlob(str string, bb *Blob) error {
+	jsonBytes, err := base64.StdEncoding.DecodeString(str)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(jsonBytes, bb)
+}
+
+// ParseBlob parses the given strBlob which is in the form of:
+// common.BlobStateFilePrefix + version + ":" + blobBase64
+func ParseBlob(strBlob string) (*Blob, error) {
+
+	strBlobSlice := strings.Split(strBlob, ":")
+	if len(strBlobSlice) != 2 {
+		return nil, fmt.Errorf("invalid format %q. Should contain a single ':'", strBlob)
+	}
+	var bb Blob
+	if err := ParseBase64ToBlob(strBlobSlice[1], &bb); err != nil {
+		return nil, fmt.Errorf("failed to parse base64toblob: %s", err)
+	}
+	return &bb, nil
 }

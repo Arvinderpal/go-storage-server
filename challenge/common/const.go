@@ -19,9 +19,14 @@ var (
 
 const (
 	ServerSockAddress = "0.0.0.0:7777"
-	DataDirBasePath   = "./"
+	DataDirBasePath   = "./data"
 
 	// RFC3339Milli is the RFC3339 with milliseconds for the default timestamp format
 	// log files.
 	RFC3339Milli = "2006-01-02T15:04:05.000Z07:00"
+
+	// BlobStateFileName is the name of the JSON formated file of a Blob's state
+	BlobStateFileName = "blob_state.json"
+	// BlobStateFilePrefix is the prefix using when printing/writing a blob in a base64 form.
+	BlobStateFilePrefix = "BLOB_BASE64_"
 )

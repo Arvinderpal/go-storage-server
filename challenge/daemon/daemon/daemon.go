@@ -14,10 +14,9 @@ package daemon
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"sync"
 
+	"github.com/Arvinderpal/go-storage-server/challenge/common"
 	"github.com/Arvinderpal/go-storage-server/challenge/pkg/blob"
 	// "github.com/networkplayground/pkg/option"
 
@@ -30,8 +29,9 @@ var (
 
 // Daemon is the storage daemon
 type Daemon struct {
-	blobMU   sync.RWMutex
-	blobsMap map[string]*blob.Blob
+	blobMU      sync.RWMutex
+	blobsIDMap  map[uint16]*blob.Blob
+	blobsLocMap map[string]*blob.Blob
 
 	conf *Config
 }
@@ -43,8 +43,9 @@ func NewDaemon(c *Config) (*Daemon, error) {
 	}
 
 	d := Daemon{
-		conf:     c,
-		blobsMap: make(map[string]*blob.Blob),
+		conf:        c,
+		blobsIDMap:  make(map[uint16]*blob.Blob),
+		blobsLocMap: make(map[string]*blob.Blob),
 	}
 
 	if err := d.init(); err != nil {
@@ -57,21 +58,12 @@ func NewDaemon(c *Config) (*Daemon, error) {
 func (d *Daemon) init() (err error) {
 
 	/*
-	* TODO(awander): if the "restore" directory exists, we will attempt to
+	* If the "restore" directory exists, we will attempt to
 	* restore state. Otherwise, we start afresh.
 	*
 	 */
-
-	dataDir := filepath.Join(d.conf.DataDirBasePath, "data")
-	if err = os.MkdirAll(dataDir, 0755); err != nil {
-		logger.Fatalf("Could not create data directory %s: %s", dataDir, err)
-	}
-
-	// Should be done at the very end. We will excute in the "data" directory
-	// This is where all blob specific data is kept
-	if err = os.Chdir(d.conf.DataDirBasePath); err != nil {
-		logger.Fatalf("Could not change to data directory %s: \"%s\"",
-			d.conf.DataDirBasePath, err)
+	if err := d.RestoreState(common.DataDirBasePath, true); err != nil {
+		logger.Warningf("Error while recovering endpoints: %s\n", err)
 	}
 
 	return nil
