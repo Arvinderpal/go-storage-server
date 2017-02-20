@@ -39,6 +39,8 @@ type Blob struct {
 
 	Opts   *option.BoolOptions `json:"options"`
 	Status *BlobStatus         `json:"status,omitempty"`
+
+	UpdateMU sync.RWMutex // Blob Mutex must be held for any updates
 }
 
 type statusLog struct {
@@ -47,9 +49,8 @@ type statusLog struct {
 }
 
 type BlobStatus struct {
-	Log     []*statusLog `json:"log,omitempty"`
-	Index   int          `json:"index"`
-	indexMU sync.RWMutex
+	Log   []*statusLog `json:"log,omitempty"`
+	Index int          `json:"index"`
 }
 
 func (e *BlobStatus) lastIndex() int {
@@ -79,8 +80,6 @@ func (e *BlobStatus) addStatusLog(s *statusLog) {
 }
 
 func (e *BlobStatus) String() string {
-	e.indexMU.RLock()
-	defer e.indexMU.RUnlock()
 	if len(e.Log) > 0 {
 		lastLog := e.Log[e.lastIndex()]
 		if lastLog != nil {
@@ -90,9 +89,19 @@ func (e *BlobStatus) String() string {
 	return OK.String()
 }
 
+// LastStatus returns the last status recorded
+// If no log is found, it returns OK
+func (e *BlobStatus) LastStatus() StatusCode {
+	if len(e.Log) > 0 {
+		lastLog := e.Log[e.lastIndex()]
+		if lastLog != nil {
+			return lastLog.Status.Code
+		}
+	}
+	return OK
+}
+
 func (e *BlobStatus) DumpLog() string {
-	e.indexMU.RLock()
-	defer e.indexMU.RUnlock()
 	logs := []string{}
 	for i := e.lastIndex(); ; i-- {
 		if i < 0 {
@@ -112,13 +121,11 @@ func (e *BlobStatus) DumpLog() string {
 	return strings.Join(logs, "\n")
 }
 
-func (es *BlobStatus) DeepCopy() *BlobStatus {
+func (bs *BlobStatus) DeepCopy() *BlobStatus {
 	cpy := &BlobStatus{}
-	es.indexMU.RLock()
-	defer es.indexMU.RUnlock()
-	cpy.Index = es.Index
+	cpy.Index = bs.Index
 	cpy.Log = []*statusLog{}
-	for _, v := range es.Log {
+	for _, v := range bs.Log {
 		cpy.Log = append(cpy.Log, v)
 	}
 	return cpy
@@ -142,11 +149,10 @@ func (b *Blob) DeepCopy() *Blob {
 
 func (b *Blob) SetDefaultOpts(opts *option.BoolOptions) {
 	// TODO(awander): add default options if needed
+	return
 }
 
 func (b *Blob) LogStatus(code StatusCode, msg string) {
-	b.Status.indexMU.Lock()
-	defer b.Status.indexMU.Unlock()
 	sts := &statusLog{
 		Status: Status{
 			Code: code,
@@ -158,10 +164,16 @@ func (b *Blob) LogStatus(code StatusCode, msg string) {
 }
 
 func (b *Blob) LogStatusOK(msg string) {
-	b.Status.indexMU.Lock()
-	defer b.Status.indexMU.Unlock()
 	sts := &statusLog{
 		Status:    NewStatusOK(msg),
+		Timestamp: time.Now(),
+	}
+	b.Status.addStatusLog(sts)
+}
+
+func (b *Blob) LogStatusPending(msg string) {
+	sts := &statusLog{
+		Status:    NewStatusPending(msg),
 		Timestamp: time.Now(),
 	}
 	b.Status.addStatusLog(sts)

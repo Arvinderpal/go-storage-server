@@ -21,14 +21,19 @@ import (
 type StatusCode int
 
 const (
-	OK       StatusCode = 0
-	Warning  StatusCode = -1
-	Failure  StatusCode = -2
-	Disabled StatusCode = -3
+	OK      StatusCode = 0
+	Failure StatusCode = -1
+	Pending StatusCode = -2
+	// Warning  StatusCode = -1
+	// Pending StatusCode = -3
 )
 
 func NewStatusOK(info string) Status {
 	return Status{Code: OK, Msg: info}
+}
+
+func NewStatusPending(info string) Status {
+	return Status{Code: Pending, Msg: info}
 }
 
 type Status struct {
@@ -41,12 +46,10 @@ func (sc StatusCode) String() string {
 	switch sc {
 	case OK:
 		text = common.Green("OK")
-	case Warning:
-		text = common.Yellow("Warning")
 	case Failure:
 		text = common.Red("Failure")
-	case Disabled:
-		text = common.Yellow("Disabled")
+	case Pending:
+		text = common.Yellow("Pending")
 	default:
 		text = "Unknown code"
 	}

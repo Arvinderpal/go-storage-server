@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/Arvinderpal/go-storage-server/challenge/common"
 	"github.com/Arvinderpal/go-storage-server/challenge/pkg/blob"
 	// "github.com/networkplayground/pkg/option"
 
@@ -62,7 +61,7 @@ func (d *Daemon) init() (err error) {
 	* restore state. Otherwise, we start afresh.
 	*
 	 */
-	if err := d.RestoreState(common.DataDirBasePath, true); err != nil {
+	if err := d.RestoreState(d.conf.DataDirBasePath, true); err != nil {
 		logger.Warningf("Error while recovering endpoints: %s\n", err)
 	}
 

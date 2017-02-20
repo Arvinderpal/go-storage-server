@@ -54,7 +54,7 @@ func (router *Router) createBlob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := router.daemon.CreateBlob(location); err != nil {
+	if err := router.daemon.CreateBlob(location, r); err != nil {
 		processServerError(w, r, err)
 		return
 	}

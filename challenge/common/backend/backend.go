@@ -12,6 +12,8 @@
 //
 package backend
 
+import "net/http"
+
 // "github.com/Arvinderpal/go-storage-server/challenge/common/types"
 // "github.com/Arvinderpal/go-storage-server/challenge/pkg/blob"
 // "github.com/Arvinderpal/go-storage-server/challenge/pkg/option"
@@ -22,7 +24,7 @@ type control interface {
 
 type blob interface {
 	GetBlob(string) error
-	CreateBlob(string) error
+	CreateBlob(string, *http.Request) error
 	UpdateBlob(string) error
 	DeleteBlob(string) error
 }

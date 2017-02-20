@@ -53,6 +53,8 @@ func (d *Daemon) RestoreState(dir string, clean bool) error {
 	logger.Info("Recovering old running blobs...")
 
 	d.blobMU.Lock()
+	defer d.blobMU.Unlock()
+
 	if dir == "" {
 		dir = common.DataDirBasePath
 	}
@@ -60,30 +62,27 @@ func (d *Daemon) RestoreState(dir string, clean bool) error {
 	dirFiles, err := ioutil.ReadDir(dir)
 	if err != nil {
 		// Create the data directories
-		dataDir := filepath.Join(d.conf.DataDirBasePath, "")
+		dataDir := filepath.Join(dir, "")
 		if err = os.MkdirAll(dataDir, 0755); err != nil {
 			logger.Fatalf("Could not create data directory %s: %s", dataDir, err)
 		}
-		// Should be done at the very end. We will run in the "data" directory
-		// This is where all blob specific data is kept
-		if err = os.Chdir(d.conf.DataDirBasePath); err != nil {
-			logger.Fatalf("Could not change to data directory %s: \"%s\"",
-				d.conf.DataDirBasePath, err)
-		}
+	}
 
-		d.blobMU.Unlock()
-		return nil
+	// We will run in the "data" directory
+	// This is where all blob specific data is kept
+	if err = os.Chdir(dir); err != nil {
+		logger.Fatalf("Could not change to data directory %s: \"%s\"",
+			d.conf.DataDirBasePath, err)
 	}
 
 	// Restore previous state
 
 	blobIDs := FilterBlobDir(dirFiles)
 
-	possibleBlobs := readBlobsFromDirNames(dir, blobIDs)
+	possibleBlobs := readBlobsFromDirNames(blobIDs)
 
 	if len(possibleBlobs) == 0 {
 		logger.Debug("No old blobs found.")
-		d.blobMU.Unlock()
 		return nil
 	}
 
@@ -95,8 +94,6 @@ func (d *Daemon) RestoreState(dir string, clean bool) error {
 
 		logger.Infof("Restored blob: %d %s\n", bb.ID, bb.Location)
 	}
-
-	d.blobMU.Unlock()
 
 	logger.Infof("Restored %d blobs", restored)
 
@@ -143,11 +140,11 @@ func ReadStateFile(stateFilePath string) (string, error) {
 
 // readBlobsFromDirNames returns a list of blobs from a list of directory names that
 // possibly contain a Blob.
-func readBlobsFromDirNames(basePath string, blobsDirNames []string) []*blob.Blob {
+func readBlobsFromDirNames(blobsDirNames []string) []*blob.Blob {
 	possibleBlobs := []*blob.Blob{}
 
-	for _, blobID := range blobsDirNames {
-		blobDir := filepath.Join(basePath, blobID)
+	for _, blobDir := range blobsDirNames {
+		// blobDir := filepath.Join(basePath, blobID)
 		readDir := func() string {
 			logger.Debugf("Reading directory %s\n", blobDir)
 			blobFiles, err := ioutil.ReadDir(blobDir)
@@ -158,7 +155,7 @@ func readBlobsFromDirNames(basePath string, blobsDirNames []string) []*blob.Blob
 			stateFile := FindBlobStateFile(blobDir, blobFiles)
 			if stateFile == "" {
 				logger.Infof("File %q not found in %q. Ignoring blob %s.",
-					common.BlobStateFileName, blobDir, blobID)
+					common.BlobStateFileName, blobDir, blobDir)
 				return ""
 			}
 			return stateFile

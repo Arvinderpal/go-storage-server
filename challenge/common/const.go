@@ -26,7 +26,10 @@ const (
 	RFC3339Milli = "2006-01-02T15:04:05.000Z07:00"
 
 	// BlobStateFileName is the name of the JSON formated file of a Blob's state
-	BlobStateFileName = "blob_state.json"
+	BlobStateFileName = "blob_state.base64.json"
 	// BlobStateFilePrefix is the prefix using when printing/writing a blob in a base64 form.
 	BlobStateFilePrefix = "BLOB_BASE64_"
+
+	// Blob's data file
+	BlobDataFileName = "data.raw"
 )
