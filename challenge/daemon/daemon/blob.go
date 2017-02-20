@@ -28,20 +28,34 @@ import (
 	"github.com/Arvinderpal/go-storage-server/challenge/pkg/option"
 )
 
-func (d *Daemon) GetBlob(location string) error {
+func (d *Daemon) GetBlob(location string, w http.ResponseWriter, r *http.Request) error {
 
+	var bbCpy *blob.Blob
 	logger.Debugf("Getting Blob: %s", location)
 	d.blobMU.RLock()
-	defer d.blobMU.RUnlock()
+	tmpBb := d.lookupBlobByLocation(location)
+	if tmpBb == nil {
+		d.blobMU.RUnlock()
+		w.WriteHeader(http.StatusNotFound)
+		return nil // fmt.Errorf("Blob %s not found", location)
+	}
+	d.blobMU.RUnlock()
 
-	// if bb := d.lookupBlob(location); bb != nil {
-	// 	return bb.DeepCopy(), nil
-	// }
+	tmpBb.UpdateMU.RLock()
+	// we work with a deep copy of a blob while fetching its data
+	// the blob struct can be safely deleted while the read is in operation;
+	// if the data file is also removed, the reader will throw an error.
+	bbCpy = tmpBb.DeepCopy()
+	tmpBb.UpdateMU.RUnlock()
+
+	if err := readDataFromDisk(w, bbCpy); err != nil {
+		return err
+	}
 
 	return nil
 }
 
-func (d *Daemon) CreateBlob(location string, r *http.Request) error {
+func (d *Daemon) CreateBlob(location string, w http.ResponseWriter, r *http.Request) error {
 
 	logger.Debugf("Creating Blob: %s", location)
 
@@ -71,14 +85,111 @@ func (d *Daemon) CreateBlob(location string, r *http.Request) error {
 		if bb.Status.LastStatus() == blob.OK {
 			logger.Debugf("Processing data for blob %d %s", bb.ID, bb.Location)
 			bb.LogStatusPending("Starting Data WR")
-			writeBlobStateFile(bb) // write new status to disk
-
+			if err := writeBlobStateFile(bb); err != nil { // update disk
+				return err
+			}
 			if err := writeDataToDisk(r, bb); err != nil {
 				return err
 			}
-
 			bb.LogStatusOK("Blob Data WR Complete!")
-			writeBlobStateFile(bb) // write new status to disk
+			if err := writeBlobStateFile(bb); err != nil { // update disk
+				return err
+			}
+		}
+		return nil
+	}
+
+	if err := processBlob(); err != nil {
+		bb.LogStatus(blob.Failure, err.Error())
+		return err
+	}
+
+	return nil
+}
+
+func (d *Daemon) UpdateBlob(location string, w http.ResponseWriter, r *http.Request) error {
+
+	logger.Debugf("Updating Blob: %s", location)
+	d.blobMU.RLock()
+	bb := d.lookupBlobByLocation(location)
+	if bb == nil {
+		d.blobMU.RUnlock()
+		w.WriteHeader(http.StatusNotFound)
+		return nil
+	}
+	d.blobMU.RUnlock()
+
+	processBlob := func() error {
+		bb.UpdateMU.Lock()
+		defer bb.UpdateMU.Unlock()
+
+		// Process the blob data
+		switch bb.Status.LastStatus() {
+
+		case blob.OK:
+			logger.Debugf("Processing data for blob %d %s", bb.ID, bb.Location)
+			bb.LogStatusPending("Starting Data WR")
+			if err := writeBlobStateFile(bb); err != nil { // update disk
+				return err
+			}
+			if err := writeDataToDisk(r, bb); err != nil {
+				return err
+			}
+			bb.LogStatusOK("Blob Data WR Complete!")
+			if err := writeBlobStateFile(bb); err != nil { // update disk
+				return err
+			}
+
+		case blob.Pending:
+			// this should never happen since Pending is only temporary while
+			// writes are happening. if the process crashes during Pending, the
+			// blob's are cleaned up. if a network error occurs during a write,
+			// Pending is changed to Failure...
+			logger.Errorf("Blob %d/%s found in Pending state", bb.ID, bb.Location)
+			w.WriteHeader(http.StatusInternalServerError)
+
+		case blob.Failure:
+			// TODO(awandr): delete current blob obj, and create new one
+			// The failed blob will be eventually be cleand up
+
+		default:
+			logger.Errorf("Blob %d/%s found in unknown state: %s", bb.ID, bb.Location, bb.Status.LastStatus())
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+		return nil
+	}
+
+	if err := processBlob(); err != nil {
+		bb.LogStatus(blob.Failure, err.Error())
+		return err
+	}
+
+	return nil
+}
+
+func (d *Daemon) DeleteBlob(location string, w http.ResponseWriter, r *http.Request) error {
+
+	logger.Debugf("Deleting Blob: %s", location)
+
+	d.blobMU.RLock()
+	bb := d.lookupBlobByLocation(location)
+	if bb == nil {
+		d.blobMU.RUnlock()
+		w.WriteHeader(http.StatusNotFound)
+		return nil
+	}
+	d.blobMU.RUnlock()
+
+	processBlob := func() error {
+		bb.UpdateMU.Lock()
+		defer bb.UpdateMU.Unlock()
+
+		// we change the blob state to "failure" and remove it from the
+		// daemon maps. a failed blob's data will be cleaned up by GC()
+		logger.Debugf("Deleting blob %d %s", bb.ID, bb.Location)
+		bb.LogStatus(blob.Failure, "Deleted!")
+		if err := writeBlobStateFile(bb); err != nil { // update disk
+			return err
 		}
 		return nil
 	}
@@ -118,9 +229,43 @@ func writeDataToDisk(r *http.Request, bb *blob.Blob) error {
 		return err
 	}
 
-	logger.Debugf("Wrote %d bytes for bolb %d/%s", n, bb.ID, bb.Location)
+	logger.Debugf("Wrote %d bytes for blob %d/%s", n, bb.ID, bb.Location)
 
 	fw.Flush()
+	return nil
+}
+
+// readDataFromDisk will read blob data file and write to the http.ResponseWriter
+func readDataFromDisk(w http.ResponseWriter, bb *blob.Blob) error {
+
+	blobDir := filepath.Join(".", strconv.Itoa(int(bb.ID)))
+	blobFiles, err := ioutil.ReadDir(blobDir)
+	if err != nil {
+		return fmt.Errorf("Error while reading directory %q: %s", blobDir, err)
+	}
+	dataFile := FindBlobDataFile(blobDir, blobFiles)
+	if dataFile == "" {
+		return fmt.Errorf("Data file %q not found in %q",
+			common.BlobDataFileName, blobDir)
+	}
+
+	fw, err := os.Open(dataFile)
+	if err != nil {
+		return fmt.Errorf("Error while opening data file for %d %s: %s", bb.ID, bb.Location, err)
+	}
+	buf, err := ioutil.ReadAll(fw)
+	rdr := bytes.NewReader(buf)
+	defer fw.Close()
+
+	// write response
+	w.WriteHeader(http.StatusOK)
+	n, err := rdr.WriteTo(w)
+	if err != nil {
+		return err
+	}
+
+	logger.Debugf("Read %d bytes for blob %d/%s", n, bb.ID, bb.Location)
+
 	return nil
 }
 
@@ -140,25 +285,6 @@ func (d *Daemon) createAndInsertBlob(location string) (*blob.Blob, error) {
 	// we insert blob even in case of error later -- gc/cleanup should handle removal of any state created
 	d.insertBlob(bb)
 	return bb, nil
-}
-
-func (d *Daemon) UpdateBlob(location string) error {
-
-	logger.Debugf("Updating Blob: %s", location)
-	d.blobMU.RLock()
-	bb := d.lookupBlobByLocation(location)
-	if bb == nil {
-		return fmt.Errorf("Blob %s not found", location)
-	}
-	defer d.blobMU.RUnlock()
-
-	return nil
-}
-
-func (d *Daemon) DeleteBlob(location string) error {
-
-	logger.Debugf("Deleting Blob: %s", location)
-	return nil
 }
 
 func (d *Daemon) lookupBlob(id uint16) *blob.Blob {
@@ -259,4 +385,15 @@ func (d *Daemon) generateBlobID() (uint16, error) {
 	}
 	// This is bad! Either we have an internal error or user is trying to create > 2^16 blobs
 	return 0, fmt.Errorf("Could not find an ID to allocate! Remove blobs to continue")
+}
+
+// FindBlobDataFile returns the full path of the file that is the Blob data
+// file from the slice of files
+func FindBlobDataFile(basePath string, blobFiles []os.FileInfo) string {
+	for _, blobFile := range blobFiles {
+		if blobFile.Name() == common.BlobDataFileName {
+			return filepath.Join(basePath, blobFile.Name())
+		}
+	}
+	return ""
 }

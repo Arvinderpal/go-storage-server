@@ -23,10 +23,10 @@ type control interface {
 }
 
 type blob interface {
-	GetBlob(string) error
-	CreateBlob(string, *http.Request) error
-	UpdateBlob(string) error
-	DeleteBlob(string) error
+	GetBlob(string, http.ResponseWriter, *http.Request) error
+	CreateBlob(string, http.ResponseWriter, *http.Request) error
+	UpdateBlob(string, http.ResponseWriter, *http.Request) error
+	DeleteBlob(string, http.ResponseWriter, *http.Request) error
 }
 
 // DaemonBackend is the interface for daemon only.

@@ -39,11 +39,10 @@ func (router *Router) getBlob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := router.daemon.GetBlob(location); err != nil {
+	if err := router.daemon.GetBlob(location, w, r); err != nil {
 		processServerError(w, r, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
 }
 
 func (router *Router) createBlob(w http.ResponseWriter, r *http.Request) {
@@ -54,7 +53,7 @@ func (router *Router) createBlob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := router.daemon.CreateBlob(location, r); err != nil {
+	if err := router.daemon.CreateBlob(location, w, r); err != nil {
 		processServerError(w, r, err)
 		return
 	}
@@ -69,7 +68,7 @@ func (router *Router) deleteBlob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := router.daemon.DeleteBlob(location); err != nil {
+	if err := router.daemon.DeleteBlob(location, w, r); err != nil {
 		processServerError(w, r, err)
 		return
 	}
@@ -84,9 +83,8 @@ func (router *Router) updateBlob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := router.daemon.UpdateBlob(location); err != nil {
+	if err := router.daemon.UpdateBlob(location, w, r); err != nil {
 		processServerError(w, r, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
 }
