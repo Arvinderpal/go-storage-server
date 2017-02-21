@@ -15,7 +15,7 @@ package blob
 import (
 	"fmt"
 
-	"github.com/networkplayground/common"
+	"github.com/Arvinderpal/go-storage-server/challenge/common"
 )
 
 type StatusCode int

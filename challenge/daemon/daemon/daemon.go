@@ -17,7 +17,6 @@ import (
 	"sync"
 
 	"github.com/Arvinderpal/go-storage-server/challenge/pkg/blob"
-	// "github.com/networkplayground/pkg/option"
 
 	"github.com/op/go-logging"
 )

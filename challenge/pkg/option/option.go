@@ -17,13 +17,12 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/networkplayground/common"
-
+	"github.com/Arvinderpal/go-storage-server/challenge/common"
 	"github.com/op/go-logging"
 )
 
 var (
-	log = logging.MustGetLogger("cilium-option")
+	log = logging.MustGetLogger("challenge-option")
 )
 
 type Option struct {
