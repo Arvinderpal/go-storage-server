@@ -95,6 +95,14 @@ BLOB_BASE64_dev:eyJpZCI6MTA.........
 2017-02-20T16:35:33-08:00 - OK - Blob Created & Saved!
 ```
 
+### Using the Dockerfile
+If desired, you can use the Dockerfile to run the server inside a docker container. This mounts the local folder into the container; you could do git clone just as well.
+```
+docker build -t go-storage-server .
+docker run -v </local/path/to/go-storage-server>:</container/path/to/go-storage-server> -it go-storage-server bin/bash
+cd </container/path/to/go-storage-server>
+```
+
 ### Final Note
 As of 2/20/2017, I have not done much testing. In fact, there exist almost no unit tests or integration tests. 
 Use at own risk! ;)
