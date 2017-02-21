@@ -14,6 +14,7 @@ package daemon
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -39,15 +40,12 @@ func FilterBlobDir(dirFiles []os.FileInfo) []string {
 }
 
 // RestoreState syncs state against the state in the data directory.
-/* TODO (awander): If clean is set, the blobs in error states are deleted
-*  along with any associated data. Error states include:
-*	i.  write was started but never completed. This may be caused due
-* 		to various reasons, including:
-*			- process crash during a pending write
-* 			- disk space used up
-* 			- network error during a write
+/* If clean is set, the blobs in error states are deleted
+*  along with any associated data.
  */
 func (d *Daemon) RestoreState(dir string, clean bool) error {
+	var failedBlobs []*blob.Blob
+
 	restored := 0
 
 	logger.Info("Recovering old running blobs...")
@@ -87,20 +85,34 @@ func (d *Daemon) RestoreState(dir string, clean bool) error {
 	}
 
 	for _, bb := range possibleBlobs {
-		logger.Debugf("Restoring blob %+v", bb)
+		switch bb.Status.LastStatus() {
+		case blob.Pending:
+			// we mark all blobs in Pending state as Failed, it's likely that
+			// the process crashed while a blob data write was hapenning
+			bb.LogStatus(blob.Failure, "Found in Pending state during Restore - Deleting!")
+			if err := writeBlobStateFile(bb); err != nil { // update disk
+				return err
+			}
+			failedBlobs = append(failedBlobs, bb)
+		case blob.Failure:
+			failedBlobs = append(failedBlobs, bb)
+		case blob.OK:
+			d.insertBlob(bb)
+			restored++
+			logger.Infof("Restored stale blob %+v", bb)
 
-		d.insertBlob(bb)
-		restored++
-
-		logger.Infof("Restored blob: %d %s\n", bb.ID, bb.Location)
+		default:
+			logger.Warningf("Found blob with unknown state %d/%s: %s", bb.ID, bb.Location, bb.Status.LastStatus())
+			// TODO(awander): we should remove these blob entry...
+		}
 	}
 
 	logger.Infof("Restored %d blobs", restored)
 
-	// TODO(awander): clean up any stale blobs
-	// if clean {
-	// 	d.cleanUp()
-	// }
+	// clean up any stale blobs
+	if clean {
+		d.cleanUp(failedBlobs)
+	}
 
 	return nil
 }
@@ -146,7 +158,6 @@ func readBlobsFromDirNames(blobsDirNames []string) []*blob.Blob {
 	for _, blobDir := range blobsDirNames {
 		// blobDir := filepath.Join(basePath, blobID)
 		readDir := func() string {
-			logger.Debugf("Reading directory %s\n", blobDir)
 			blobFiles, err := ioutil.ReadDir(blobDir)
 			if err != nil {
 				logger.Warningf("Error while reading directory %q. Ignoring it...", blobDir)
@@ -183,66 +194,25 @@ func readBlobsFromDirNames(blobsDirNames []string) []*blob.Blob {
 	return possibleBlobs
 }
 
-// // cleanUpDockerDandlingEndpoints cleans all endpoints that are dandling by checking out
-// // if a particular endpoint has its container running.
-// func (d *Daemon) cleanUpDockerDandlingEndpoints() {
-// 	eps, _ := d.EndpointsGet()
-// 	if eps == nil {
-// 		return
-// 	}
+func (d *Daemon) cleanUp(failedBlobs []*blob.Blob) int {
+	cleaned := 0
+	cleanBlobState := func(bb *blob.Blob) error {
+		blobDir := filepath.Join(".", strconv.Itoa(int(bb.ID)))
+		err := os.RemoveAll(blobDir)
+		if err != nil {
+			return fmt.Errorf("Error while removing directory %q: %s", blobDir, err)
+		}
+		return nil
+	}
 
-// 	cleanUp := func(ep endpoint.Endpoint) {
-// 		logger.Infof("Endpoint %d not found in docker, cleaning up...", ep.ID)
-// 		d.EndpointLeave(ep.ID)
-// 		// FIXME: IPV4
-// 		if ep.IPv6 != nil {
-// 			if ep.IsCNI() {
-// 				d.ReleaseIP(ipam.CNIIPAMType, ep.IPv6.IPAMReq())
-// 			} else if ep.IsLibnetwork() {
-// 				d.ReleaseIP(ipam.LibnetworkIPAMType, ep.IPv6.IPAMReq())
-// 			}
-// 		}
+	for _, bb := range failedBlobs {
+		if err := cleanBlobState(bb); err != nil {
+			logger.Warningf("Unable to clean blob %d/%s: %s", bb.ID, bb.Location, err)
+		} else {
+			cleaned++
+			logger.Infof("Cleaned stale blob %+v", bb)
+		}
 
-// 	}
-
-// 	for _, ep := range eps {
-// 		logger.Debugf("Checking if endpoint is running in docker %d", ep.ID)
-// 		if ep.DockerNetworkID != "" {
-// 			nls, err := d.dockerClient.NetworkInspect(ctx.Background(), ep.DockerNetworkID)
-// 			if dockerAPI.IsErrNetworkNotFound(err) {
-// 				cleanUp(ep)
-// 				continue
-// 			}
-// 			if err != nil {
-// 				continue
-// 			}
-// 			found := false
-// 			for _, v := range nls.Containers {
-// 				if v.EndpointID == ep.DockerEndpointID {
-// 					found = true
-// 					break
-// 				}
-// 			}
-// 			if !found {
-// 				cleanUp(ep)
-// 				continue
-// 			}
-// 		} else if ep.DockerID != "" {
-// 			cont, err := d.dockerClient.ContainerInspect(ctx.Background(), ep.DockerID)
-// 			if dockerAPI.IsErrContainerNotFound(err) {
-// 				cleanUp(ep)
-// 				continue
-// 			}
-// 			if err != nil {
-// 				continue
-// 			}
-// 			if !cont.State.Running {
-// 				cleanUp(ep)
-// 				continue
-// 			}
-// 		} else {
-// 			cleanUp(ep)
-// 			continue
-// 		}
-// 	}
-// }
+	}
+	return cleaned
+}

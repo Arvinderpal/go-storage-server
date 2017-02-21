@@ -29,7 +29,7 @@ var (
 )
 
 const (
-	maxLogs = 256
+	maxLogs = 16
 )
 
 // Blob contains all the details of the blob on disk

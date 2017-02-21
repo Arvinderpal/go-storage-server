@@ -65,5 +65,8 @@ func (d *Daemon) init() (err error) {
 		logger.Warningf("Error while recovering endpoints: %s\n", err)
 	}
 
+	// start our GC for blobs
+	d.gc()
+
 	return nil
 }

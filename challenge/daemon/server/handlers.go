@@ -72,7 +72,6 @@ func (router *Router) deleteBlob(w http.ResponseWriter, r *http.Request) {
 		processServerError(w, r, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
 }
 
 func (router *Router) updateBlob(w http.ResponseWriter, r *http.Request) {

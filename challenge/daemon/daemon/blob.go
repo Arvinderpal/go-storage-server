@@ -119,48 +119,49 @@ func (d *Daemon) UpdateBlob(location string, w http.ResponseWriter, r *http.Requ
 	}
 	d.blobMU.RUnlock()
 
+	newBb, oldBb, err := d.deleteAndInsertBlob(location)
+	if err != nil {
+		return err
+	}
+
 	processBlob := func() error {
-		bb.UpdateMU.Lock()
-		defer bb.UpdateMU.Unlock()
+		newBb.UpdateMU.Lock()
+		defer newBb.UpdateMU.Unlock()
+		oldBb.UpdateMU.Lock() // possible oldBb is still being worked by another thread, so we'll have to wait for it to finish
+		defer oldBb.UpdateMU.Unlock()
 
-		// Process the blob data
-		switch bb.Status.LastStatus() {
+		// we mark the old blob with Failure, to be reclaimed by GC
+		oldBb.LogStatus(blob.Failure, "Deleted!")
+		if err := writeBlobStateFile(oldBb); err != nil { // update disk
+			return err
+		}
 
-		case blob.OK:
-			logger.Debugf("Processing data for blob %d %s", bb.ID, bb.Location)
-			bb.LogStatusPending("Starting Data WR")
-			if err := writeBlobStateFile(bb); err != nil { // update disk
+		if err := d.snapshotBlob(newBb); err != nil {
+			newBb.LogStatus(blob.Failure, err.Error())
+		} else {
+			newBb.LogStatusOK("Blob Updated & Saved!")
+		}
+
+		// Process the blob data if everything went ok above!
+		if newBb.Status.LastStatus() == blob.OK {
+			logger.Debugf("Processing data for blob %d %s", newBb.ID, newBb.Location)
+			newBb.LogStatusPending("Starting Data WR")
+			if err := writeBlobStateFile(newBb); err != nil { // update disk
 				return err
 			}
-			if err := writeDataToDisk(r, bb); err != nil {
+			if err := writeDataToDisk(r, newBb); err != nil {
 				return err
 			}
-			bb.LogStatusOK("Blob Data WR Complete!")
-			if err := writeBlobStateFile(bb); err != nil { // update disk
+			newBb.LogStatusOK("Blob Data WR Complete!")
+			if err := writeBlobStateFile(newBb); err != nil { // update disk
 				return err
 			}
-
-		case blob.Pending:
-			// this should never happen since Pending is only temporary while
-			// writes are happening. if the process crashes during Pending, the
-			// blob's are cleaned up. if a network error occurs during a write,
-			// Pending is changed to Failure...
-			logger.Errorf("Blob %d/%s found in Pending state", bb.ID, bb.Location)
-			w.WriteHeader(http.StatusInternalServerError)
-
-		case blob.Failure:
-			// TODO(awandr): delete current blob obj, and create new one
-			// The failed blob will be eventually be cleand up
-
-		default:
-			logger.Errorf("Blob %d/%s found in unknown state: %s", bb.ID, bb.Location, bb.Status.LastStatus())
-			w.WriteHeader(http.StatusInternalServerError)
 		}
 		return nil
 	}
 
 	if err := processBlob(); err != nil {
-		bb.LogStatus(blob.Failure, err.Error())
+		newBb.LogStatus(blob.Failure, err.Error())
 		return err
 	}
 
@@ -198,6 +199,10 @@ func (d *Daemon) DeleteBlob(location string, w http.ResponseWriter, r *http.Requ
 		bb.LogStatus(blob.Failure, err.Error())
 		return err
 	}
+
+	d.blobMU.Lock()
+	d.deleteBlob(bb) // remove the blob from daemon
+	d.blobMU.Unlock()
 
 	return nil
 }
@@ -285,6 +290,37 @@ func (d *Daemon) createAndInsertBlob(location string) (*blob.Blob, error) {
 	// we insert blob even in case of error later -- gc/cleanup should handle removal of any state created
 	d.insertBlob(bb)
 	return bb, nil
+}
+
+// deleteAndInsertBlob is a util method for deleting a blob struct from daemon and creating another one with same name/location
+func (d *Daemon) deleteAndInsertBlob(location string) (*blob.Blob, *blob.Blob, error) {
+	d.blobMU.Lock()
+	defer d.blobMU.Unlock()
+
+	oldBb := d.lookupBlobByLocation(location)
+	if oldBb == nil {
+		return nil, nil, fmt.Errorf("Could not find %s", location)
+	}
+
+	d.deleteBlob(oldBb)
+
+	id, err := d.generateBlobID()
+	if err != nil {
+		return nil, nil, err
+	}
+	newBb := &blob.Blob{
+		ID:       id,
+		Location: location,
+	}
+
+	d.insertBlob(newBb)
+	return newBb, oldBb, nil
+}
+
+// MUST be called with blobMU lock held
+func (d *Daemon) deleteBlob(bb *blob.Blob) {
+	delete(d.blobsIDMap, bb.ID)
+	delete(d.blobsLocMap, bb.Location)
 }
 
 func (d *Daemon) lookupBlob(id uint16) *blob.Blob {
