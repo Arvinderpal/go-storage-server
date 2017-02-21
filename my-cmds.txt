@@ -17,6 +17,9 @@ bin/challenge-executable -D
 curl --stderr /dev/null http://localhost:7777/healthz
 
 curl --stderr /dev/null http://localhost:7777/store/blah 
-curl --request POST http://localhost:7777/store/blah --data @../test/data.txt
-curl --request PUT http://localhost:7777/store/blah --data @../test/data.txt
+curl --request POST http://localhost:7777/store/blah --data-binary @../test/data.txt
+curl --request PUT http://localhost:7777/store/blah --data-binary @../test/data.txt
 curl --request DELETE http://localhost:7777/store/blah 
+
+
+curl --data-binary "@../test/data.txt" http://localhost:7777/store/blah
