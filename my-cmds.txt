@@ -1,7 +1,9 @@
 
 docker run -v .:/home/ubuntu -other -options go-storage-server
 
-docker run -v /home/awander/go/src/github.com/Arvinderpal/go-storage-server/challenge:/root/challenge -it go-storage-server bin/bash
+docker run -v /home/awander/go/src/github.com/Arvinderpal/go-storage-server:/root/go/src/github.com/Arvinderpal/go-storage-server -it go-storage-server bin/bash
+
+docker build -t go-storage-server .
 
 
 ########

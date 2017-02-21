@@ -46,7 +46,7 @@ See `test` directory for more examples.
 Blobs can be created, updated, and deleted. Internally, a blob is identified by a unique `uint16` ID. The `daemon` maintains a pair of maps, one keyed by blob.ID and other by blob.Location, to easily fetch all existing blobs that have been created. 
 
 Each blob can be in one of 3 states:
-
+```
 ------			  -----------
 | OK |   -------  | Pending | 
 ------            -----------
@@ -54,7 +54,7 @@ Each blob can be in one of 3 states:
 		-----------
 		| Failure |
 		-----------
-
+```
 When the internal blob object is first created (POST), it's marked as `OK`; however, during the actual writing of the user data, the blob enters `Pending` state. It leaves that state and goes back to `OK` after the write is complete. If an error occurs at any point, for example due to network error or disk space issues, the write fails and the blob is marked as `Failure`. 
 
 A blob update (PUT) functions similar to create, with the difference that the existing blob is marked for deletion (by setting its state to `Failure` and removing it from the daemon's internal maps) and a new blob is created. 
